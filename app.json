@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "toranut",
+    "name": "החלפות תורנויות",
     "slug": "toranut",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,7 +19,15 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "החלפות תורנויות",
+      "shortName": "החלפות",
+      "lang": "he",
+      "themeColor": "#F3F0E8",
+      "backgroundColor": "#F3F0E8"
+    },
+    "experiments": {
+      "baseUrl": "/toranut"
     }
   }
 }
