@@ -172,9 +172,9 @@ export default function App() {
           mine={mine}
           firstTime={firstTime}
           onCancel={() => setScreen('home')}
-          onSubmit={async (dutyType, dutyDate, wantDates, note) => {
+          onSubmit={async (dutyType, dutyDate, note) => {
             const id = await createRequest(
-              { duty_type: dutyType, duty_date: dutyDate, want_dates: wantDates, note: note || null, name: profile.name, phone: profile.phone },
+              { duty_type: dutyType, duty_date: dutyDate, want_dates: [], note: note || null, name: profile.name, phone: profile.phone },
               token
             );
             await addMine(id);
@@ -350,7 +350,6 @@ function Home(props: {
   const color = DUTY_COLORS[duty];
 
   const myDatesForDuty = mine.filter((m) => m.duty_type === duty).map((m) => m.duty_date);
-  const myWantsForDuty = mine.filter((m) => m.duty_type === duty).flatMap((m) => m.want_dates);
 
   const others = requests
     .filter(
@@ -360,12 +359,7 @@ function Home(props: {
         r.phone !== profile.phone &&
         !myDatesForDuty.includes(r.duty_date) // same day as mine: swapping makes no sense
     )
-    .map((r) => {
-      const theyTakeMine = myDatesForDuty.find((d) => r.want_dates.includes(d)) ?? null;
-      const iTakeTheirs = myWantsForDuty.includes(r.duty_date);
-      return { r, theyTakeMine, match: Boolean(theyTakeMine) || iTakeTheirs };
-    })
-    .sort((a, b) => Number(b.match) - Number(a.match) || a.r.duty_date.localeCompare(b.r.duty_date));
+    .sort((a, b) => a.duty_date.localeCompare(b.duty_date));
 
   const counts = DUTY_ORDER.reduce(
     (acc, d) => {
@@ -383,6 +377,14 @@ function Home(props: {
           <View style={{ flex: 1 }}>
             <Text style={st.kicker}>שלום {profile.name.split(' ')[0]}</Text>
             <Text style={st.h1}>החלפות תורנויות</Text>
+            {requests.length > 0 && (
+              <View style={st.liveRow}>
+                <View style={st.liveDot} />
+                <Text style={st.liveText}>
+                  {requests.length === 1 ? 'בקשת החלפה אחת פתוחה כרגע באתר' : `${requests.length} בקשות החלפה פתוחות כרגע באתר`}
+                </Text>
+              </View>
+            )}
           </View>
           <Pressable onPress={props.onEditProfile} style={st.iconBtn} hitSlop={6} accessibilityLabel="הפרטים שלי">
             <Text style={st.iconBtnText}>הפרטים שלי</Text>
@@ -418,12 +420,6 @@ function Home(props: {
 
         {props.error && <Text style={[st.err, { marginBottom: 10 }]}>{props.error}</Text>}
 
-        {myDatesForDuty.length > 0 && (
-          <Text style={[st.cardMeta, { marginTop: 0, marginBottom: 12 }]}>
-            בקשות באותו יום כמו שלך לא מוצגות, כי אין טעם להחליף איתן.
-          </Text>
-        )}
-
         {others.length === 0 && !props.loading && !props.error && (
           <View style={st.empty}>
             <Text style={st.emptyTitle}>
@@ -440,8 +436,8 @@ function Home(props: {
         )}
 
         <View style={{ gap: 12 }}>
-          {others.map(({ r, theyTakeMine, match }) => (
-            <RequestCard key={r.id} r={r} match={match} theyTakeMine={theyTakeMine} onOffer={() => props.onOffer(r)} />
+          {others.map((r) => (
+            <RequestCard key={r.id} r={r} onOffer={() => props.onOffer(r)} />
           ))}
         </View>
 
@@ -466,37 +462,13 @@ function DateBadge({ iso, duty }: { iso: string; duty: DutyType }) {
   );
 }
 
-function RequestCard({
-  r,
-  match,
-  theyTakeMine,
-  onOffer,
-}: {
-  r: SwapRequest;
-  match: boolean;
-  theyTakeMine: string | null;
-  onOffer: () => void;
-}) {
+function RequestCard({ r, onOffer }: { r: SwapRequest; onOffer: () => void }) {
   return (
-    <View style={[st.card, match && { borderColor: C.match, borderWidth: 2 }]}>
-      {match && (
-        <View style={st.matchBanner}>
-          <Text style={st.matchText}>
-            {theyTakeMine ? `התאמה! התורנות שלך ב־${formatLong(theyTakeMine)} מתאימה לבקשה הזאת` : 'התאמה! זה יום שסימנת שמתאים לך'}
-          </Text>
-        </View>
-      )}
-      <View style={st.cardRow}>
-        <View style={{ flex: 1, gap: 6 }}>
-          <Text style={st.cardName}>{r.name}</Text>
-          <DateBadge iso={r.duty_date} duty={r.duty_type} />
-        </View>
+    <View style={st.card}>
+      <View style={{ gap: 6 }}>
+        <Text style={st.cardName}>{r.name}</Text>
+        <DateBadge iso={r.duty_date} duty={r.duty_type} />
       </View>
-      <Text style={st.cardMeta}>
-        {r.want_dates.length > 0
-          ? `יכולים לקחת במקום: ${[...r.want_dates].sort().map(formatShort).join(' · ')}`
-          : 'גמישים, כל יום יכול להתאים'}
-      </Text>
       {r.note ? <Text style={st.cardNote}>״{r.note}״</Text> : null}
       <Pressable onPress={onOffer} style={({ pressed }) => [st.waBtn, pressed && { opacity: 0.85 }]}>
         <Text style={st.waBtnText}>הצעת החלפה בוואטסאפ</Text>
@@ -515,9 +487,6 @@ function MyRequestCard({ r, onClose }: { r: SwapRequest; onClose: () => void }) 
           <DateBadge iso={r.duty_date} duty={r.duty_type} />
         </View>
       </View>
-      <Text style={st.cardMeta}>
-        {r.want_dates.length > 0 ? `ימים שמתאימים לי במקום: ${[...r.want_dates].sort().map(formatShort).join(' · ')}` : 'גמיש בתאריכים'}
-      </Text>
       {confirm ? (
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
           <Pressable onPress={onClose} style={[st.smallBtn, { backgroundColor: C.accent, flex: 1 }]}>
@@ -549,12 +518,10 @@ function NewRequest({
   mine: SwapRequest[];
   firstTime: boolean;
   onCancel: () => void;
-  onSubmit: (d: DutyType, date: string, wants: string[], note: string) => Promise<void>;
+  onSubmit: (d: DutyType, date: string, note: string) => Promise<void>;
 }) {
   const [duty, setDuty] = useState<DutyType>(profile.dutyType);
   const [date, setDate] = useState<string | null>(null);
-  const [wants, setWants] = useState<string[]>([]);
-  const [flexible, setFlexible] = useState(true);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -564,11 +531,10 @@ function NewRequest({
 
   const submit = async () => {
     if (!date) return setErr('בחרו את היום שבו יש לכם תורנות.');
-    if (!flexible && wants.length === 0) return setErr('בחרו לפחות יום אחד שאתם יכולים לקחת, או סמנו שאתם גמישים.');
     setBusy(true);
     setErr(null);
     try {
-      await onSubmit(duty, date, flexible ? [] : wants.filter((w) => w !== date), note.trim().slice(0, 200));
+      await onSubmit(duty, date, note.trim().slice(0, 200));
     } catch (e: any) {
       setErr(e.message);
       setBusy(false);
@@ -586,7 +552,7 @@ function NewRequest({
         <Text style={st.h1}>{firstTime ? `באיזה יום יש לכם ${DUTY_LABELS[duty]} שצריך להחליף?` : 'בקשת החלפה חדשה'}</Text>
         {firstTime && (
           <Text style={st.lead}>
-            אחרי שתבחרו את היום, תראו את כל מי שמחפש החלפה ב{DUTY_LABELS[duty]} בימים אחרים, ותוכלו להציע להם להחליף.
+            אחרי שתבחרו את היום, תראו את כל מי שמחפש החלפה ב{DUTY_LABELS[duty]} בימים אחרים, ותוכלו להציע להם להחליף בוואטסאפ.
           </Text>
         )}
 
@@ -597,7 +563,7 @@ function NewRequest({
           </>
         )}
 
-        <Text style={st.stepTitle}>1. באיזה יום יש לכם {DUTY_LABELS[duty]}?</Text>
+        {!firstTime && <Text style={st.stepTitle}>באיזה יום יש לכם {DUTY_LABELS[duty]}?</Text>}
         <View style={st.panel}>
           <DateGrid
             selected={date ? [date] : []}
@@ -611,24 +577,7 @@ function NewRequest({
         </View>
         {date && <Text style={[st.chosen, { color }]}>נבחר: {formatLong(date)}</Text>}
 
-        <Text style={st.stepTitle}>2. איזה יום אתם יכולים לקחת במקום?</Text>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Toggle label="גמיש, כל יום מתאים" active={flexible} onPress={() => setFlexible(true)} color={color} />
-          <Toggle label="רק ימים מסוימים" active={!flexible} onPress={() => setFlexible(false)} color={color} />
-        </View>
-        {!flexible && (
-          <View style={[st.panel, { marginTop: 10 }]}>
-            <Text style={st.panelHint}>אפשר לבחור כמה ימים</Text>
-            <DateGrid
-              selected={wants}
-              onToggle={(iso) => setWants((w) => (w.includes(iso) ? w.filter((x) => x !== iso) : [...w, iso]))}
-              color={color}
-              disabled={date ? [date] : []}
-            />
-          </View>
-        )}
-
-        <Text style={st.stepTitle}>3. הערה (לא חובה)</Text>
+        <Text style={st.stepTitle}>הערה (לא חובה)</Text>
         <TextInput
           value={note}
           onChangeText={setNote}
@@ -676,13 +625,12 @@ function OfferModal({
   const myDates = mine
     .filter((m) => m.duty_type === target.duty_type && m.duty_date !== target.duty_date)
     .map((m) => m.duty_date);
-  const preferred = myDates.find((d) => target.want_dates.includes(d)) ?? myDates[0] ?? null;
+  const preferred = myDates[0] ?? null;
   const [myDate, setMyDate] = useState<string | null>(preferred);
   const [showGrid, setShowGrid] = useState(myDates.length === 0);
   const [publish, setPublish] = useState(true);
 
   const isNewDate = myDate !== null && !myDates.includes(myDate);
-  const notInWants = myDate !== null && target.want_dates.length > 0 && !target.want_dates.includes(myDate);
 
   const message = myDate
     ? `היי ${target.name}, ראיתי באתר ההחלפות שיש לך בקשת החלפה ל${label} ב${formatLong(target.duty_date)}.\n` +
@@ -705,10 +653,7 @@ function OfferModal({
             <View style={st.sheetHandle} />
             <Text style={st.h2}>הצעת החלפה ל{target.name}</Text>
             <Text style={st.lead}>
-              הבקשה של {target.name}: {label} ב{formatLong(target.duty_date)}.
-              {target.want_dates.length > 0
-                ? ` ימים שמתאימים במקום: ${[...target.want_dates].sort().map(formatShort).join(' · ')}.`
-                : ' כל יום יכול להתאים.'}
+              ל{target.name} יש {label} ב{formatLong(target.duty_date)}, וצריך להחליף אותו.
             </Text>
 
             <Text style={st.stepTitle}>באיזה יום יש לך {label}?</Text>
@@ -717,7 +662,7 @@ function OfferModal({
                 {myDates.map((d) => (
                   <Toggle
                     key={d}
-                    label={formatShort(d) + (target.want_dates.includes(d) ? ' ✓' : '')}
+                    label={formatShort(d)}
                     active={myDate === d}
                     onPress={() => {
                       setMyDate(d);
@@ -731,18 +676,13 @@ function OfferModal({
             )}
             {showGrid && (
               <View style={[st.panel, { marginTop: 10 }]}>
-                {target.want_dates.length > 0 && <Text style={st.panelHint}>הימים המסומנים בנקודה מתאימים ל{target.name}</Text>}
                 <DateGrid
                   selected={myDate ? [myDate] : []}
                   onToggle={(iso) => setMyDate(iso)}
                   color={color}
                   disabled={[target.duty_date]}
-                  hint={target.want_dates}
                 />
               </View>
-            )}
-            {notInWants && (
-              <Text style={st.warn}>שימו לב: היום הזה לא ברשימת הימים שמתאימים ל{target.name}, אבל אפשר להציע בכל זאת.</Text>
             )}
             {isNewDate && (
               <Pressable onPress={() => setPublish((p) => !p)} style={st.checkRow}>
@@ -939,6 +879,9 @@ const st = StyleSheet.create({
   dutyTitle: { ...T, fontSize: 20, fontWeight: '800' },
   dutyHint: { ...T, color: C.muted, fontSize: 14, marginTop: 2 },
   chev: { ...T, color: C.muted, fontSize: 26 },
+  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: -2 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.whatsapp },
+  liveText: { ...T, color: C.muted, fontSize: 13 },
   footer: { ...T, color: C.muted, fontSize: 12, textAlign: 'center', marginTop: 30 },
   toast: {
     position: 'absolute',
