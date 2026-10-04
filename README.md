@@ -16,7 +16,7 @@ npx expo start --web
 
 ## בנייה ופרסום (GitHub Pages)
 ```
-npx expo export -p web
+EXPO_BASE_URL=/toranut npx expo export -p web
 touch dist/.nojekyll && cp dist/index.html dist/404.html
 ```
-את תוכן `dist` מעלים לענף `gh-pages`. נתיב הבסיס מוגדר ב־`app.json` (`experiments.baseUrl`).
+את תוכן `dist` מעלים לענף `gh-pages`. ב־Vercel הבנייה רצה אוטומטית (ראו `vercel.json`) והאתר מוגש מהשורש.

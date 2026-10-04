@@ -25,9 +25,6 @@
       "lang": "he",
       "themeColor": "#F3F0E8",
       "backgroundColor": "#F3F0E8"
-    },
-    "experiments": {
-      "baseUrl": "/toranut"
     }
   }
 }
