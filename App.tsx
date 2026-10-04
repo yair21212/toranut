@@ -552,9 +552,13 @@ function NewRequest({
   return (
     <ScrollView contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
       <View style={st.container}>
-        {!firstTime && (
+        {!firstTime ? (
           <Pressable onPress={onCancel} hitSlop={10}>
             <Text style={st.back}>› חזרה</Text>
+          </Pressable>
+        ) : (
+          <Pressable onPress={onCancel} hitSlop={10} style={st.skipTop}>
+            <Text style={st.skipTopText}>רק רוצים להסתכל? דלגו לבקשות של אחרים ‹</Text>
           </Pressable>
         )}
         <Text style={st.h1}>{firstTime ? `באיזה יום יש לכם ${DUTY_LABELS[duty]} שצריך להחליף?` : 'בקשת החלפה חדשה'}</Text>
@@ -891,6 +895,8 @@ const st = StyleSheet.create({
   liveRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: -2 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.whatsapp },
   liveText: { ...T, color: C.muted, fontSize: 13 },
+  skipTop: { alignSelf: 'flex-start', backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 14 },
+  skipTopText: { ...T, fontSize: 14, fontWeight: '500', color: C.accent },
   footer: { ...T, color: C.muted, fontSize: 12, textAlign: 'center', marginTop: 30 },
   toast: {
     position: 'absolute',
