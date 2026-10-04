@@ -9,7 +9,7 @@ export const DUTY_LABELS: Record<DutyType, string> = {
 export const DUTY_HINTS: Record<DutyType, string> = {
   shatifut: 'שטיפת כלים במטבח',
   hada: 'תורנות מטבח רגילה',
-  rampa: 'תורנות מטבח מהשנה הרביעית',
+  rampa: 'תורנות רמפה',
 };
 
 export const DUTY_COLORS: Record<DutyType, { bg: string; fg: string; soft: string }> = {

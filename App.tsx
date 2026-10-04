@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import DateGrid from './src/DateGrid';
-import { closeRequest, createRequest, fetchOpenRequests } from './src/api';
+import { CloseReason, closeRequest, createRequest, fetchOpenRequests, logOffer } from './src/api';
+import AdminScreen from './src/Admin';
 import { formatLong, formatShort, relativeLabel } from './src/dates';
 import { displayPhone, normalizePhone, whatsappUrl } from './src/phone';
 import { getOwnerToken, loadMyIds, loadProfile, saveMyIds, saveProfile } from './src/storage';
@@ -38,6 +39,9 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
   document.head.appendChild(meta);
   document.body.style.backgroundColor = C.bg;
 }
+
+const IS_ADMIN =
+  Platform.OS === 'web' && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('admin');
 
 type Screen = 'loading' | 'onboarding' | 'home' | 'new';
 
@@ -110,20 +114,22 @@ export default function App() {
   }, []);
 
   const onClose = useCallback(
-    async (r: SwapRequest) => {
+    async (r: SwapRequest, reason: CloseReason) => {
       try {
-        await closeRequest(r.id, token);
+        await closeRequest(r.id, token, reason);
         setRequests((rs) => rs.filter((x) => x.id !== r.id));
         const next = myIds.filter((x) => x !== r.id);
         setMyIds(next);
         await saveMyIds(next);
-        showToast('הבקשה הוסרה מהלוח. בהצלחה בתורנות!');
+        showToast(reason === 'swapped' ? 'איזה כיף, מצאת החלפה! הבקשה ירדה מהלוח.' : 'הבקשה הוסרה מהלוח.');
       } catch (e: any) {
         showToast(e.message);
       }
     },
     [token, myIds, showToast]
   );
+
+  if (IS_ADMIN) return <AdminScreen />;
 
   if (screen === 'loading') {
     return (
@@ -343,7 +349,7 @@ function Home(props: {
   onEditProfile: () => void;
   onChangeDuty: (d: DutyType) => void;
   onOffer: (r: SwapRequest) => void;
-  onClose: (r: SwapRequest) => void;
+  onClose: (r: SwapRequest, reason: CloseReason) => void;
 }) {
   const { profile, requests, mine, myIds } = props;
   const duty = profile.dutyType;
@@ -405,7 +411,7 @@ function Home(props: {
             <Text style={st.h2}>הבקשות שלי</Text>
             <View style={{ gap: 10 }}>
               {props.mine.map((m) => (
-                <MyRequestCard key={m.id} r={m} onClose={() => props.onClose(m)} />
+                <MyRequestCard key={m.id} r={m} onClose={(reason) => props.onClose(m, reason)} />
               ))}
             </View>
           </View>
@@ -477,27 +483,29 @@ function RequestCard({ r, onOffer }: { r: SwapRequest; onOffer: () => void }) {
   );
 }
 
-function MyRequestCard({ r, onClose }: { r: SwapRequest; onClose: () => void }) {
-  const [confirm, setConfirm] = useState(false);
+function MyRequestCard({ r, onClose }: { r: SwapRequest; onClose: (reason: CloseReason) => void }) {
+  const [asking, setAsking] = useState(false);
   return (
     <View style={[st.card, { backgroundColor: '#FBFAF6' }]}>
-      <View style={st.cardRow}>
-        <View style={{ flex: 1, gap: 6 }}>
-          <Text style={st.cardMetaStrong}>{DUTY_LABELS[r.duty_type]}</Text>
-          <DateBadge iso={r.duty_date} duty={r.duty_type} />
-        </View>
+      <View style={{ gap: 6 }}>
+        <Text style={st.cardMetaStrong}>{DUTY_LABELS[r.duty_type]}</Text>
+        <DateBadge iso={r.duty_date} duty={r.duty_type} />
       </View>
-      {confirm ? (
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-          <Pressable onPress={onClose} style={[st.smallBtn, { backgroundColor: C.accent, flex: 1 }]}>
-            <Text style={[st.smallBtnText, { color: '#fff' }]}>כן, להוריד מהלוח</Text>
+      {asking ? (
+        <View style={{ gap: 8, marginTop: 12 }}>
+          <Text style={st.cardMeta}>למה להוריד את הבקשה?</Text>
+          <Pressable onPress={() => onClose('swapped')} style={[st.smallBtn, { backgroundColor: C.accent, borderColor: C.accent }]}>
+            <Text style={[st.smallBtnText, { color: '#fff', fontWeight: '700' }]}>מצאתי החלפה ✓</Text>
           </Pressable>
-          <Pressable onPress={() => setConfirm(false)} style={[st.smallBtn, { flex: 1 }]}>
-            <Text style={st.smallBtnText}>ביטול</Text>
+          <Pressable onPress={() => onClose('removed')} style={st.smallBtn}>
+            <Text style={st.smallBtnText}>כבר לא צריך החלפה</Text>
+          </Pressable>
+          <Pressable onPress={() => setAsking(false)} style={{ paddingVertical: 6, alignItems: 'center' }}>
+            <Text style={[st.smallBtnText, { color: C.muted }]}>ביטול</Text>
           </Pressable>
         </View>
       ) : (
-        <Pressable onPress={() => setConfirm(true)} style={[st.smallBtn, { marginTop: 10 }]}>
+        <Pressable onPress={() => setAsking(true)} style={[st.smallBtn, { marginTop: 12 }]}>
           <Text style={st.smallBtnText}>מצאתי החלפה / להסיר את הבקשה</Text>
         </Pressable>
       )}
@@ -641,6 +649,7 @@ function OfferModal({
   const send = () => {
     if (!myDate) return;
     Linking.openURL(whatsappUrl(target.phone, message));
+    logOffer(target.id, target.duty_type);
     onSent(myDate, isNewDate && publish);
   };
 

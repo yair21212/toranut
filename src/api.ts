@@ -36,8 +36,41 @@ export async function createRequest(req: NewSwapRequest, ownerToken: string): Pr
   return (data as { id: string }).id;
 }
 
-export async function closeRequest(id: string, ownerToken: string): Promise<boolean> {
-  const { data, error } = await supabase.rpc('close_request', { p_id: id, p_token: ownerToken });
+export type CloseReason = 'swapped' | 'removed';
+
+export async function closeRequest(id: string, ownerToken: string, reason: CloseReason): Promise<boolean> {
+  const { data, error } = await supabase.rpc('close_request_v2', { p_id: id, p_token: ownerToken, p_reason: reason });
   if (error) throw new Error('הפעולה נכשלה. נסה שוב.');
   return Boolean(data);
+}
+
+/** Fire-and-forget: count that someone sent a WhatsApp swap offer. */
+export function logOffer(requestId: string, dutyType: string): void {
+  supabase
+    .from('swap_offers')
+    .insert({ request_id: requestId, duty_type: dutyType })
+    .then(() => {}, () => {});
+}
+
+export type AdminStats = {
+  users: number;
+  requests_total: number;
+  requests_open: number;
+  swapped: number;
+  removed: number;
+  expired: number;
+  offers: number;
+  swapped_7d: number;
+  requests_7d: number;
+  by_type: { duty_type: string; requests: number; swapped: number; offers: number; open: number }[];
+  daily: { day: string; requests: number; swapped: number }[];
+};
+
+export async function fetchAdminStats(password: string): Promise<AdminStats> {
+  const { data, error } = await supabase.rpc('admin_stats', { p_password: password });
+  if (error) {
+    if (error.message.includes('bad_password')) throw new Error('הסיסמה לא נכונה.');
+    throw new Error('לא הצלחנו לטעון את הנתונים. בדוק את החיבור.');
+  }
+  return data as AdminStats;
 }
