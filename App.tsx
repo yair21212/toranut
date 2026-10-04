@@ -51,6 +51,7 @@ export default function App() {
   const [listError, setListError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [offerFor, setOfferFor] = useState<SwapRequest | null>(null);
+  const [firstTime, setFirstTime] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -139,8 +140,10 @@ export default function App() {
         <Onboarding
           initial={profile}
           onDone={async (p) => {
+            const isNew = !profile;
             await updateProfile(p);
-            setScreen('home');
+            setFirstTime(isNew);
+            setScreen(isNew ? 'new' : 'home');
           }}
         />
       )}
@@ -153,7 +156,10 @@ export default function App() {
           loading={loadingList}
           error={listError}
           onRefresh={refresh}
-          onNew={() => setScreen('new')}
+          onNew={() => {
+            setFirstTime(false);
+            setScreen('new');
+          }}
           onEditProfile={() => setScreen('onboarding')}
           onChangeDuty={(d) => updateProfile({ ...profile, dutyType: d })}
           onOffer={setOfferFor}
@@ -164,6 +170,7 @@ export default function App() {
         <NewRequest
           profile={profile}
           mine={mine}
+          firstTime={firstTime}
           onCancel={() => setScreen('home')}
           onSubmit={async (dutyType, dutyDate, wantDates, note) => {
             const id = await createRequest(
@@ -346,7 +353,13 @@ function Home(props: {
   const myWantsForDuty = mine.filter((m) => m.duty_type === duty).flatMap((m) => m.want_dates);
 
   const others = requests
-    .filter((r) => r.duty_type === duty && !myIds.includes(r.id) && r.phone !== profile.phone)
+    .filter(
+      (r) =>
+        r.duty_type === duty &&
+        !myIds.includes(r.id) &&
+        r.phone !== profile.phone &&
+        !myDatesForDuty.includes(r.duty_date) // same day as mine: swapping makes no sense
+    )
     .map((r) => {
       const theyTakeMine = myDatesForDuty.find((d) => r.want_dates.includes(d)) ?? null;
       const iTakeTheirs = myWantsForDuty.includes(r.duty_date);
@@ -355,7 +368,11 @@ function Home(props: {
     .sort((a, b) => Number(b.match) - Number(a.match) || a.r.duty_date.localeCompare(b.r.duty_date));
 
   const counts = DUTY_ORDER.reduce(
-    (acc, d) => ({ ...acc, [d]: requests.filter((r) => r.duty_type === d && !myIds.includes(r.id)).length }),
+    (acc, d) => {
+      const mineD = mine.filter((m) => m.duty_type === d).map((m) => m.duty_date);
+      const n = requests.filter((r) => r.duty_type === d && !myIds.includes(r.id) && !mineD.includes(r.duty_date)).length;
+      return { ...acc, [d]: n };
+    },
     {} as Record<DutyType, number>
   );
 
@@ -401,11 +418,23 @@ function Home(props: {
 
         {props.error && <Text style={[st.err, { marginBottom: 10 }]}>{props.error}</Text>}
 
+        {myDatesForDuty.length > 0 && (
+          <Text style={[st.cardMeta, { marginTop: 0, marginBottom: 12 }]}>
+            בקשות באותו יום כמו שלך לא מוצגות, כי אין טעם להחליף איתן.
+          </Text>
+        )}
+
         {others.length === 0 && !props.loading && !props.error && (
           <View style={st.empty}>
-            <Text style={st.emptyTitle}>אין כרגע בקשות פתוחות ב{DUTY_LABELS[duty]}</Text>
+            <Text style={st.emptyTitle}>
+              {myDatesForDuty.length > 0
+                ? `עוד אין בקשות ב${DUTY_LABELS[duty]} בימים אחרים`
+                : `אין כרגע בקשות פתוחות ב${DUTY_LABELS[duty]}`}
+            </Text>
             <Text style={st.emptyText}>
-              פרסמו את הבקשה שלכם, וכל מי שנכנס יראה אותה. כדאי גם לשלוח את הקישור לאתר בקבוצה של הבסיס.
+              {myDatesForDuty.length > 0
+                ? 'הבקשה שלכם מופיעה בלוח. כשמישהו יראה אותה ויוכל להחליף, הוא ישלח לכם הודעה בוואטסאפ. כדאי לשלוח את הקישור לאתר בקבוצה של הבסיס.'
+                : 'פרסמו את הבקשה שלכם, וכל מי שנכנס יראה אותה. כדאי גם לשלוח את הקישור לאתר בקבוצה של הבסיס.'}
             </Text>
           </View>
         )}
@@ -512,11 +541,13 @@ function MyRequestCard({ r, onClose }: { r: SwapRequest; onClose: () => void }) 
 function NewRequest({
   profile,
   mine,
+  firstTime,
   onCancel,
   onSubmit,
 }: {
   profile: Profile;
   mine: SwapRequest[];
+  firstTime: boolean;
   onCancel: () => void;
   onSubmit: (d: DutyType, date: string, wants: string[], note: string) => Promise<void>;
 }) {
@@ -547,13 +578,24 @@ function NewRequest({
   return (
     <ScrollView contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
       <View style={st.container}>
-        <Pressable onPress={onCancel} hitSlop={10}>
-          <Text style={st.back}>› חזרה</Text>
-        </Pressable>
-        <Text style={st.h1}>בקשת החלפה חדשה</Text>
+        {!firstTime && (
+          <Pressable onPress={onCancel} hitSlop={10}>
+            <Text style={st.back}>› חזרה</Text>
+          </Pressable>
+        )}
+        <Text style={st.h1}>{firstTime ? `באיזה יום יש לכם ${DUTY_LABELS[duty]} שצריך להחליף?` : 'בקשת החלפה חדשה'}</Text>
+        {firstTime && (
+          <Text style={st.lead}>
+            אחרי שתבחרו את היום, תראו את כל מי שמחפש החלפה ב{DUTY_LABELS[duty]} בימים אחרים, ותוכלו להציע להם להחליף.
+          </Text>
+        )}
 
-        <Text style={st.label}>סוג התורנות</Text>
-        <DutyPills value={duty} onChange={setDuty} />
+        {!firstTime && (
+          <>
+            <Text style={st.label}>סוג התורנות</Text>
+            <DutyPills value={duty} onChange={setDuty} />
+          </>
+        )}
 
         <Text style={st.stepTitle}>1. באיזה יום יש לכם {DUTY_LABELS[duty]}?</Text>
         <View style={st.panel}>
@@ -601,7 +643,14 @@ function NewRequest({
           הבקשה תופיע עם השם {profile.name} והמספר {displayPhone(profile.phone)}.
         </Text>
         {err && <Text style={st.err}>{err}</Text>}
-        <PrimaryButton label={busy ? 'מפרסם…' : 'פרסום הבקשה'} onPress={submit} disabled={busy} color={color} style={{ marginTop: 12 }} />
+        <PrimaryButton
+          label={busy ? 'מפרסם…' : firstTime ? 'פרסום הבקשה וצפייה בהחלפות' : 'פרסום הבקשה'}
+          onPress={submit}
+          disabled={busy}
+          color={color}
+          style={{ marginTop: 12 }}
+        />
+        {firstTime && <GhostButton label="דילוג, רק לראות בקשות של אחרים" onPress={onCancel} />}
       </View>
     </ScrollView>
   );
@@ -624,7 +673,9 @@ function OfferModal({
 }) {
   const label = DUTY_LABELS[target.duty_type];
   const color = DUTY_COLORS[target.duty_type].bg;
-  const myDates = mine.filter((m) => m.duty_type === target.duty_type).map((m) => m.duty_date);
+  const myDates = mine
+    .filter((m) => m.duty_type === target.duty_type && m.duty_date !== target.duty_date)
+    .map((m) => m.duty_date);
   const preferred = myDates.find((d) => target.want_dates.includes(d)) ?? myDates[0] ?? null;
   const [myDate, setMyDate] = useState<string | null>(preferred);
   const [showGrid, setShowGrid] = useState(myDates.length === 0);
