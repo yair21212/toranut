@@ -97,7 +97,10 @@ export default function App() {
     };
   }, [refresh]);
 
-  const mine = useMemo(() => requests.filter((r) => myIds.includes(r.id)), [requests, myIds]);
+  const mine = useMemo(
+    () => requests.filter((r) => myIds.includes(r.id) || (profile !== null && r.phone === profile.phone)),
+    [requests, myIds, profile]
+  );
 
   const addMine = useCallback(
     async (id: string) => {
@@ -116,7 +119,7 @@ export default function App() {
   const onClose = useCallback(
     async (r: SwapRequest, reason: CloseReason) => {
       try {
-        await closeRequest(r.id, token, reason);
+        await closeRequest(r.id, profile?.phone ?? '', reason);
         setRequests((rs) => rs.filter((x) => x.id !== r.id));
         const next = myIds.filter((x) => x !== r.id);
         setMyIds(next);
@@ -126,7 +129,7 @@ export default function App() {
         showToast(e.message);
       }
     },
-    [token, myIds, showToast]
+    [profile, myIds, showToast]
   );
 
   if (IS_ADMIN) return <AdminScreen />;
@@ -145,8 +148,9 @@ export default function App() {
       {screen === 'onboarding' && (
         <Onboarding
           initial={profile}
-          onDone={async (p) => {
-            const isNew = !profile;
+          requests={requests}
+          onDone={async (p, returning) => {
+            const isNew = !profile && !returning;
             await updateProfile(p);
             setFirstTime(isNew);
             setScreen(isNew ? 'new' : 'home');
@@ -232,12 +236,33 @@ export default function App() {
 
 // ======================= Onboarding =======================
 
-function Onboarding({ initial, onDone }: { initial: Profile | null; onDone: (p: Profile) => void }) {
-  const [step, setStep] = useState<1 | 2>(initial ? 2 : 1);
+function Onboarding({
+  initial,
+  requests,
+  onDone,
+}: {
+  initial: Profile | null;
+  requests: SwapRequest[];
+  onDone: (p: Profile, returning?: boolean) => void;
+}) {
+  const [step, setStep] = useState<1 | 2 | 'login'>(initial ? 2 : 1);
+  const [loginNote, setLoginNote] = useState<string | null>(null);
   const [duty, setDuty] = useState<DutyType | null>(initial?.dutyType ?? null);
   const [name, setName] = useState(initial?.name ?? '');
   const [phone, setPhone] = useState(initial ? '0' + initial.phone.slice(3) : '');
   const [err, setErr] = useState<string | null>(null);
+
+  const login = () => {
+    const p = normalizePhone(phone);
+    if (!p) return setErr('מספר הטלפון לא תקין. צריך מספר נייד, למשל 0541234567.');
+    const own = requests.filter((r) => r.phone === p).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    if (own.length > 0) {
+      onDone({ name: own[0].name, phone: p, dutyType: own[0].duty_type }, true);
+      return;
+    }
+    setLoginNote('לא מצאנו בקשות פתוחות עם המספר הזה. בחרו סוג תורנות והשלימו שם כדי להמשיך.');
+    setStep(1);
+  };
 
   const finish = () => {
     const n = name.trim();
@@ -251,7 +276,33 @@ function Onboarding({ initial, onDone }: { initial: Profile | null; onDone: (p: 
   return (
     <ScrollView contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
       <View style={st.container}>
-        {step === 1 ? (
+        {step === 'login' ? (
+          <>
+            <Pressable onPress={() => setStep(1)} hitSlop={10}>
+              <Text style={st.back}>› חזרה</Text>
+            </Pressable>
+            <Text style={st.h1}>התחברות</Text>
+            <Text style={st.lead}>הכניסו את המספר שאיתו נרשמתם, והבקשות שלכם יחזרו להופיע.</Text>
+            <Text style={st.label}>מספר נייד</Text>
+            <TextInput
+              value={phone}
+              onChangeText={(t) => {
+                setPhone(t);
+                setErr(null);
+              }}
+              placeholder="05X-XXX-XXXX"
+              placeholderTextColor="#9AA19C"
+              style={[st.input, { textAlign: 'right' }]}
+              keyboardType="phone-pad"
+              inputMode="tel"
+              autoComplete="tel"
+              maxLength={16}
+              onSubmitEditing={login}
+            />
+            {err && <Text style={st.err}>{err}</Text>}
+            <PrimaryButton label="כניסה" onPress={login} style={{ marginTop: 20 }} />
+          </>
+        ) : step === 1 ? (
           <>
             <Text style={st.kicker}>החלפות תורנויות</Text>
             <Text style={st.h1}>מה אתם מחפשים להחליף?</Text>
@@ -279,6 +330,21 @@ function Onboarding({ initial, onDone }: { initial: Profile | null; onDone: (p: 
                 </Pressable>
               ))}
             </View>
+            {loginNote ? (
+              <Text style={[st.warn, { marginTop: 16 }]}>{loginNote}</Text>
+            ) : (
+              <Pressable
+                onPress={() => {
+                  setErr(null);
+                  setStep('login');
+                }}
+                style={st.loginLink}
+              >
+                <Text style={st.loginLinkText}>
+                  כבר נרשמתם? <Text style={{ color: C.accent, fontWeight: '700' }}>התחברות עם מספר טלפון</Text>
+                </Text>
+              </Pressable>
+            )}
           </>
         ) : (
           <>
@@ -361,8 +427,7 @@ function Home(props: {
     .filter(
       (r) =>
         r.duty_type === duty &&
-        !myIds.includes(r.id) &&
-        r.phone !== profile.phone &&
+        !mine.some((m) => m.id === r.id) &&
         !myDatesForDuty.includes(r.duty_date) // same day as mine: swapping makes no sense
     )
     .sort((a, b) => a.duty_date.localeCompare(b.duty_date));
@@ -370,7 +435,7 @@ function Home(props: {
   const counts = DUTY_ORDER.reduce(
     (acc, d) => {
       const mineD = mine.filter((m) => m.duty_type === d).map((m) => m.duty_date);
-      const n = requests.filter((r) => r.duty_type === d && !myIds.includes(r.id) && !mineD.includes(r.duty_date)).length;
+      const n = requests.filter((r) => r.duty_type === d && !mine.some((m) => m.id === r.id) && !mineD.includes(r.duty_date)).length;
       return { ...acc, [d]: n };
     },
     {} as Record<DutyType, number>
@@ -383,11 +448,13 @@ function Home(props: {
           <View style={{ flex: 1 }}>
             <Text style={st.kicker}>שלום {profile.name.split(' ')[0]}</Text>
             <Text style={st.h1}>החלפות תורנויות</Text>
-            {requests.length > 0 && (
+            {requests.length - mine.length > 0 && (
               <View style={st.liveRow}>
                 <View style={st.liveDot} />
                 <Text style={st.liveText}>
-                  {requests.length === 1 ? 'בקשת החלפה אחת פתוחה כרגע באתר' : `${requests.length} בקשות החלפה פתוחות כרגע באתר`}
+                  {requests.length - mine.length === 1
+                    ? 'בקשת החלפה אחת פתוחה כרגע באתר'
+                    : `${requests.length - mine.length} בקשות החלפה פתוחות כרגע באתר`}
                 </Text>
               </View>
             )}
@@ -897,6 +964,8 @@ const st = StyleSheet.create({
   liveText: { ...T, color: C.muted, fontSize: 13 },
   skipTop: { alignSelf: 'flex-start', backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 14 },
   skipTopText: { ...T, fontSize: 14, fontWeight: '500', color: C.accent },
+  loginLink: { marginTop: 22, paddingVertical: 12, alignItems: 'center', borderTopWidth: 1, borderTopColor: C.line },
+  loginLinkText: { ...T, fontSize: 15, color: C.muted },
   footer: { ...T, color: C.muted, fontSize: 12, textAlign: 'center', marginTop: 30 },
   toast: {
     position: 'absolute',
