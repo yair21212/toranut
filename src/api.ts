@@ -38,8 +38,14 @@ export async function createRequest(req: NewSwapRequest, ownerToken: string): Pr
 
 export type CloseReason = 'swapped' | 'removed';
 
-export async function closeRequest(id: string, phone: string, reason: CloseReason): Promise<boolean> {
-  const { data, error } = await supabase.rpc('close_request_by_phone', { p_id: id, p_phone: phone, p_reason: reason });
+/** Close a request owned either by this phone number or by this device. */
+export async function closeRequest(id: string, phone: string, ownerToken: string, reason: CloseReason): Promise<boolean> {
+  const { data, error } = await supabase.rpc('close_request_owned', {
+    p_id: id,
+    p_phone: phone,
+    p_token: ownerToken,
+    p_reason: reason,
+  });
   if (error) throw new Error('הפעולה נכשלה. נסה שוב.');
   return Boolean(data);
 }

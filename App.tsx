@@ -119,7 +119,7 @@ export default function App() {
   const onClose = useCallback(
     async (r: SwapRequest, reason: CloseReason) => {
       try {
-        await closeRequest(r.id, profile?.phone ?? '', reason);
+        await closeRequest(r.id, profile?.phone ?? '', token, reason);
         setRequests((rs) => rs.filter((x) => x.id !== r.id));
         const next = myIds.filter((x) => x !== r.id);
         setMyIds(next);
@@ -129,7 +129,7 @@ export default function App() {
         showToast(e.message);
       }
     },
-    [profile, myIds, showToast]
+    [profile, token, myIds, showToast]
   );
 
   if (IS_ADMIN) return <AdminScreen />;
