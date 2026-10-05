@@ -13,11 +13,12 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import DateGrid from './src/DateGrid';
-import { CloseReason, closeRequest, createRequest, fetchOpenRequests, logOffer } from './src/api';
+import { AccessError, CloseReason, closeRequest, createRequest, fetchOpenRequests, logOffer, setAccessCode } from './src/api';
+import Gate from './src/Gate';
 import AdminScreen from './src/Admin';
 import { formatLong, formatShort, relativeLabel } from './src/dates';
 import { displayPhone, normalizePhone, whatsappUrl } from './src/phone';
-import { getOwnerToken, loadMyIds, loadProfile, saveMyIds, saveProfile } from './src/storage';
+import { getOwnerToken, loadCode, loadMyIds, loadProfile, saveCode, saveMyIds, saveProfile } from './src/storage';
 import { C, FONT } from './src/theme';
 import { DUTY_COLORS, DUTY_HINTS, DUTY_LABELS, DUTY_ORDER, DutyType, Profile, SwapRequest } from './src/types';
 
@@ -56,6 +57,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [offerFor, setOfferFor] = useState<SwapRequest | null>(null);
   const [firstTime, setFirstTime] = useState(false);
+  const [hasCode, setHasCode] = useState<boolean | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -64,27 +66,42 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
+  /** The stored base code stopped working (changed by admin): ask for it again. */
+  const lockOut = useCallback(async () => {
+    setAccessCode('');
+    await saveCode(null);
+    setRequests([]);
+    setHasCode(false);
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoadingList(true);
     try {
       const rows = await fetchOpenRequests();
       setRequests(rows);
       setListError(null);
-    } catch {
+    } catch (e) {
+      if (e instanceof AccessError) return lockOut();
       setListError('לא הצלחנו לטעון את הבקשות. בדוק את החיבור לאינטרנט.');
     } finally {
       setLoadingList(false);
     }
-  }, []);
+  }, [lockOut]);
 
   useEffect(() => {
     (async () => {
-      const [p, t, ids] = await Promise.all([loadProfile(), getOwnerToken(), loadMyIds()]);
+      const [p, t, ids, code] = await Promise.all([loadProfile(), getOwnerToken(), loadMyIds(), loadCode()]);
+      if (code) setAccessCode(code);
+      setHasCode(Boolean(code));
       setProfile(p);
       setToken(t);
       setMyIds(ids);
       setScreen(p ? 'home' : 'onboarding');
     })();
+  }, []);
+
+  useEffect(() => {
+    if (!hasCode) return;
     refresh();
     const iv = setInterval(refresh, 30000);
     const onVis = () => {
@@ -95,7 +112,7 @@ export default function App() {
       clearInterval(iv);
       if (Platform.OS === 'web' && typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis);
     };
-  }, [refresh]);
+  }, [refresh, hasCode]);
 
   const mine = useMemo(
     () => requests.filter((r) => myIds.includes(r.id) || (profile !== null && r.phone === profile.phone)),
@@ -126,15 +143,28 @@ export default function App() {
         await saveMyIds(next);
         showToast(reason === 'swapped' ? 'איזה כיף, מצאת החלפה! הבקשה ירדה מהלוח.' : 'הבקשה הוסרה מהלוח.');
       } catch (e: any) {
+        if (e instanceof AccessError) return lockOut();
         showToast(e.message);
       }
     },
-    [profile, token, myIds, showToast]
+    [profile, token, myIds, showToast, lockOut]
   );
 
   if (IS_ADMIN) return <AdminScreen />;
 
-  if (screen === 'loading') {
+  if (hasCode === false) {
+    return (
+      <Gate
+        onPass={async (code) => {
+          setAccessCode(code);
+          await saveCode(code);
+          setHasCode(true);
+        }}
+      />
+    );
+  }
+
+  if (screen === 'loading' || hasCode === null) {
     return (
       <View style={[st.root, { alignItems: 'center', justifyContent: 'center' }]}>
         <ActivityIndicator color={C.accent} />
@@ -183,10 +213,19 @@ export default function App() {
           firstTime={firstTime}
           onCancel={() => setScreen('home')}
           onSubmit={async (dutyType, dutyDate, note) => {
-            const id = await createRequest(
-              { duty_type: dutyType, duty_date: dutyDate, want_dates: [], note: note || null, name: profile.name, phone: profile.phone },
-              token
-            );
+            let id: string;
+            try {
+              id = await createRequest(
+                { duty_type: dutyType, duty_date: dutyDate, want_dates: [], note: note || null, name: profile.name, phone: profile.phone },
+                token
+              );
+            } catch (e) {
+              if (e instanceof AccessError) {
+                await lockOut();
+                return;
+              }
+              throw e;
+            }
             await addMine(id);
             if (dutyType !== profile.dutyType) await updateProfile({ ...profile, dutyType });
             await refresh();

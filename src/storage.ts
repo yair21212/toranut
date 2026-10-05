@@ -57,3 +57,20 @@ export async function saveMyIds(ids: string[]): Promise<void> {
     await AsyncStorage.setItem(MINE_KEY, JSON.stringify(ids));
   } catch {}
 }
+
+const CODE_KEY = 'toranut.basecode.v1';
+
+export async function loadCode(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(CODE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCode(code: string | null): Promise<void> {
+  try {
+    if (code) await AsyncStorage.setItem(CODE_KEY, code);
+    else await AsyncStorage.removeItem(CODE_KEY);
+  } catch {}
+}

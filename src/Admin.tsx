@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AdminStats, fetchAdminStats } from './api';
+import { AdminStats, adminSetCode, fetchAdminStats } from './api';
 import { C, FONT } from './theme';
 import { DUTY_COLORS, DUTY_LABELS, DutyType } from './types';
 import { formatShort } from './dates';
@@ -159,6 +159,8 @@ export default function AdminScreen() {
           <Row label="עדיין פתוחות" value={s.requests_open} last />
         </View>
 
+        <CodeChanger password={pw} />
+
         <Text style={a.note}>
           "החלפה" נספרת כשמי שפרסם בקשה לוחץ "מצאתי החלפה". בקשות שעבר התאריך שלהן בלי שסגרו אותן לא נספרות, אז המספר האמיתי
           כנראה קצת יותר גבוה. 
@@ -166,6 +168,52 @@ export default function AdminScreen() {
         </Text>
       </View>
     </ScrollView>
+  );
+}
+
+function CodeChanger({ password }: { password: string }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const save = async () => {
+    if (!/^[0-9]{4}$/.test(code)) return setMsg({ ok: false, text: 'הקוד צריך להיות 4 ספרות.' });
+    setBusy(true);
+    setMsg(null);
+    try {
+      await adminSetCode(password, code);
+      setMsg({ ok: true, text: `הקוד הוחלף ל־${code}. כל מי שמחובר יתבקש להכניס את הקוד החדש.` });
+      setCode('');
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Text style={a.h2}>קוד הבסיס</Text>
+      <View style={a.card}>
+        <Text style={[a.tdText, { color: C.muted, fontSize: 13, lineHeight: 19, marginBottom: 10 }]}>
+          אם הקוד דלף החוצה, אפשר להחליף אותו כאן. אחרי ההחלפה צריך לפרסם את הקוד החדש בקבוצה של הבסיס.
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TextInput
+            value={code}
+            onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 4))}
+            placeholder="קוד חדש (4 ספרות)"
+            placeholderTextColor="#9AA19C"
+            keyboardType="number-pad"
+            inputMode="numeric"
+            maxLength={4}
+            style={[a.input, { flex: 1, paddingVertical: 10 }]}
+          />
+          <Pressable onPress={save} disabled={busy} style={[a.btn, { marginTop: 0, paddingHorizontal: 18, paddingVertical: 12 }, busy && { opacity: 0.6 }]}>
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={a.btnText}>החלפה</Text>}
+          </Pressable>
+        </View>
+        {msg && <Text style={[a.tdText, { fontSize: 13, marginTop: 10, color: msg.ok ? C.accent : C.danger }]}>{msg.text}</Text>}
+      </View>
+    </>
   );
 }
 
