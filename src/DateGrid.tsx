@@ -57,9 +57,14 @@ export default function DateGrid({ selected, onToggle, color, disabled = [], hin
         >
           <Text style={[s.navArrow, !canPrev && { color: '#C9C4B8' }]}>›</Text>
         </Pressable>
-        <Text style={s.monthTitle}>
-          {MONTHS[month]} {year}
-        </Text>
+        <View style={s.monthWrap}>
+          <View style={s.monthNum}>
+            <Text style={s.monthNumText}>{month + 1}</Text>
+          </View>
+          <Text style={s.monthTitle}>
+            {MONTHS[month]} {year}
+          </Text>
+        </View>
         <Pressable
           onPress={() => canNext && setOffset((o) => o + 1)}
           disabled={!canNext}
@@ -138,7 +143,18 @@ const s = StyleSheet.create({
   },
   navBtnOff: { backgroundColor: '#F3F0E8' },
   navArrow: { fontFamily: FONT, fontSize: 28, lineHeight: 30, color: C.ink, marginTop: -3 },
-  monthTitle: { flex: 1, textAlign: 'center', fontFamily: FONT, fontWeight: '700', fontSize: 18, color: C.ink },
+  monthWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  monthNum: {
+    minWidth: 40,
+    height: 34,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: C.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthNumText: { fontFamily: FONT, fontWeight: '800', fontSize: 18, color: '#fff' },
+  monthTitle: { textAlign: 'center', fontFamily: FONT, fontWeight: '700', fontSize: 18, color: C.ink },
   row: { flexDirection: 'row', gap: 4 },
   head: { flex: 1, textAlign: 'center', color: C.muted, fontSize: 12, fontFamily: FONT, paddingVertical: 2 },
   cell: { flex: 1, aspectRatio: 1, maxHeight: 48 },
