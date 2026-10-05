@@ -1,7 +1,7 @@
 export type DutyType = 'shatifut' | 'hada' | 'rampa';
 
 export const DUTY_LABELS: Record<DutyType, string> = {
-  shatifut: 'שתפייה',
+  shatifut: 'שטפייה',
   hada: 'חד"א',
   rampa: 'רמפה',
 };
