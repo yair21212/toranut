@@ -39,7 +39,7 @@ export default function Gate({ onPass }: { onPass: (code: string) => void }) {
         setTimeout(() => onPass(value), 550);
         return;
       }
-      setErr(res === 'too_many_attempts' ? 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות.' : 'הקוד לא נכון. בקשו אותו בקבוצה.');
+      setErr(res === 'too_many_attempts' ? 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות.' : 'הסיסמה לא נכונה.');
       setCode('');
       doShake();
     } catch (e: any) {
@@ -61,7 +61,6 @@ export default function Gate({ onPass }: { onPass: (code: string) => void }) {
       <View style={s.container}>
         <Text style={s.kicker}>החלפות תורנויות</Text>
         <Text style={s.h1}>רגע לפני שנכנסים</Text>
-        <Text style={s.lead}>האתר מיועד רק לחברי הקבוצה, כדי שהשמות והמספרים יישארו בינינו.</Text>
 
         <Animated.View style={[s.box, { transform: [{ translateX: shake }] }]}>
           <Pressable
@@ -77,7 +76,7 @@ export default function Gate({ onPass }: { onPass: (code: string) => void }) {
                 <ActivityIndicator size="small" color={C.accent} />
               ) : null}
             </View>
-            <Text style={s.rowText}>אני מהחבר׳ה</Text>
+            <Text style={s.rowText}>להזנת הסיסמה</Text>
             <View style={s.badge}>
               <Text style={s.badgeIcon}>🔒</Text>
               <Text style={s.badgeText}>בדיקת גישה</Text>
@@ -92,7 +91,7 @@ export default function Gate({ onPass }: { onPass: (code: string) => void }) {
             }}
           >
             <View style={s.divider} />
-            <Text style={s.codeLabel}>{passed ? 'ברוכים הבאים!' : 'הכניסו את קוד הכניסה'}</Text>
+            <Text style={s.codeLabel}>{passed ? 'ברוכים הבאים!' : 'הכניסו סיסמה'}</Text>
             <Pressable onPress={() => input.current?.focus()} style={s.digits}>
               {[0, 1, 2, 3].map((i) => {
                 const ch = code[i];
@@ -116,7 +115,7 @@ export default function Gate({ onPass }: { onPass: (code: string) => void }) {
               style={s.hiddenInput}
               caretHidden
             />
-            {err ? <Text style={s.err}>{err}</Text> : <Text style={s.hint}>את הקוד מקבלים בקבוצה.</Text>}
+            {err ? <Text style={s.err}>{err}</Text> : null}
           </Animated.View>
         </Animated.View>
       </View>
@@ -129,7 +128,7 @@ const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: C.bg, paddingHorizontal: 16, paddingTop: 28, justifyContent: 'center' },
   container: { width: '100%', maxWidth: 440, alignSelf: 'center', marginTop: -60 },
   kicker: { ...T, color: C.muted, fontSize: 14, marginBottom: 2 },
-  h1: { ...T, fontSize: 28, fontWeight: '800', marginBottom: 8 },
+  h1: { ...T, fontSize: 28, fontWeight: '800', marginBottom: 22 },
   lead: { ...T, color: C.muted, fontSize: 15, lineHeight: 22, marginBottom: 22 },
   box: {
     backgroundColor: C.card,

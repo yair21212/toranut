@@ -176,12 +176,12 @@ function CodeChanger({ password }: { password: string }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const save = async () => {
-    if (!/^[0-9]{4}$/.test(code)) return setMsg({ ok: false, text: 'הקוד צריך להיות 4 ספרות.' });
+    if (!/^[0-9]{4}$/.test(code)) return setMsg({ ok: false, text: 'הסיסמה צריכה להיות 4 ספרות.' });
     setBusy(true);
     setMsg(null);
     try {
       await adminSetCode(password, code);
-      setMsg({ ok: true, text: `הקוד הוחלף ל־${code}. כל מי שמחובר יתבקש להכניס את הקוד החדש.` });
+      setMsg({ ok: true, text: `הסיסמה הוחלפה ל־${code}. כל מי שמחובר יתבקש להכניס את הסיסמה החדשה.` });
       setCode('');
     } catch (e: any) {
       setMsg({ ok: false, text: e.message });
@@ -191,16 +191,16 @@ function CodeChanger({ password }: { password: string }) {
   };
   return (
     <>
-      <Text style={a.h2}>קוד הכניסה</Text>
+      <Text style={a.h2}>סיסמת הכניסה לאתר</Text>
       <View style={a.card}>
         <Text style={[a.tdText, { color: C.muted, fontSize: 13, lineHeight: 19, marginBottom: 10 }]}>
-          אם הקוד דלף החוצה, אפשר להחליף אותו כאן. אחרי ההחלפה צריך לפרסם את הקוד החדש בקבוצה.
+          אם הסיסמה דלפה, אפשר להחליף אותה כאן. אחרי ההחלפה צריך לעדכן את המשתמשים בסיסמה החדשה.
         </Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TextInput
             value={code}
             onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 4))}
-            placeholder="קוד חדש (4 ספרות)"
+            placeholder="סיסמה חדשה (4 ספרות)"
             placeholderTextColor="#9AA19C"
             keyboardType="number-pad"
             inputMode="numeric"

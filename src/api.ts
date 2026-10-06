@@ -25,7 +25,7 @@ function checkStatus(status: string | undefined) {
 
 export async function verifyCode(code: string): Promise<'ok' | 'bad_code' | 'too_many_attempts'> {
   const { data, error } = await supabase.rpc('access_check', { p_code: code });
-  if (error) throw new Error('לא הצלחנו לבדוק את הקוד. בדקו את החיבור לאינטרנט.');
+  if (error) throw new Error('לא הצלחנו לבדוק את הסיסמה. בדקו את החיבור לאינטרנט.');
   return data as 'ok' | 'bad_code' | 'too_many_attempts';
 }
 
@@ -109,7 +109,7 @@ export async function fetchAdminStats(password: string): Promise<AdminStats> {
 export async function adminSetCode(password: string, newCode: string): Promise<void> {
   const { error } = await supabase.rpc('admin_set_code', { p_password: password, p_new_code: newCode });
   if (error) {
-    if (error.message.includes('bad_new_code')) throw new Error('הקוד צריך להיות 4 עד 8 ספרות.');
+    if (error.message.includes('bad_new_code')) throw new Error('הסיסמה צריכה להיות 4 עד 8 ספרות.');
     if (error.message.includes('bad_password')) throw new Error('סיסמת המנהל לא נכונה.');
     throw new Error('השינוי נכשל. נסו שוב.');
   }
