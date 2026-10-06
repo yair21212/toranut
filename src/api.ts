@@ -6,13 +6,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// ---- base access code ----
+// ---- access code ----
 let accessCode = '';
 export function setAccessCode(code: string) {
   accessCode = code;
 }
 
-/** Thrown when the stored base code is wrong/changed, so the app can ask for it again. */
+/** Thrown when the stored access code is wrong/changed, so the app can ask for it again. */
 export class AccessError extends Error {
   constructor(public status: 'bad_code' | 'too_many_attempts') {
     super(status);

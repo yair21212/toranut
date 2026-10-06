@@ -66,7 +66,7 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
-  /** The stored base code stopped working (changed by admin): ask for it again. */
+  /** The stored access code stopped working (changed by admin): ask for it again. */
   const lockOut = useCallback(async () => {
     setAccessCode('');
     await saveCode(null);
@@ -541,8 +541,8 @@ function Home(props: {
             </Text>
             <Text style={st.emptyText}>
               {myDatesForDuty.length > 0
-                ? 'הבקשה שלכם מופיעה בלוח. כשמישהו יראה אותה ויוכל להחליף, הוא ישלח לכם הודעה בוואטסאפ. כדאי לשלוח את הקישור לאתר בקבוצה של הבסיס.'
-                : 'פרסמו את הבקשה שלכם, וכל מי שנכנס יראה אותה. כדאי גם לשלוח את הקישור לאתר בקבוצה של הבסיס.'}
+                ? 'הבקשה שלכם מופיעה בלוח. כשמישהו יראה אותה ויוכל להחליף, הוא ישלח לכם הודעה בוואטסאפ. כדאי לשלוח את הקישור לאתר בקבוצה.'
+                : 'פרסמו את הבקשה שלכם, וכל מי שנכנס יראה אותה. כדאי גם לשלוח את הקישור לאתר בקבוצה.'}
             </Text>
           </View>
         )}

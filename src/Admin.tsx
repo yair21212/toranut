@@ -191,10 +191,10 @@ function CodeChanger({ password }: { password: string }) {
   };
   return (
     <>
-      <Text style={a.h2}>קוד הבסיס</Text>
+      <Text style={a.h2}>קוד הכניסה</Text>
       <View style={a.card}>
         <Text style={[a.tdText, { color: C.muted, fontSize: 13, lineHeight: 19, marginBottom: 10 }]}>
-          אם הקוד דלף החוצה, אפשר להחליף אותו כאן. אחרי ההחלפה צריך לפרסם את הקוד החדש בקבוצה של הבסיס.
+          אם הקוד דלף החוצה, אפשר להחליף אותו כאן. אחרי ההחלפה צריך לפרסם את הקוד החדש בקבוצה.
         </Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TextInput
