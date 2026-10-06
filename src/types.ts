@@ -21,8 +21,8 @@ export const DUTY_COLORS: Record<DutyType, { bg: string; fg: string; soft: strin
 export const DUTY_ORDER: DutyType[] = ['shatifut', 'hada', 'rampa'];
 
 export type Profile = {
-  name: string;
-  phone: string; // normalized 9725XXXXXXXX
+  name: string; // full name
+  email: string; // lower-case; used only to log in again, never shown
   dutyType: DutyType;
 };
 
@@ -31,10 +31,15 @@ export type SwapRequest = {
   created_at: string;
   duty_type: DutyType;
   duty_date: string; // YYYY-MM-DD
-  want_dates: string[];
   name: string;
-  phone: string;
   note: string | null;
+  mine: boolean; // posted by this email or this device
 };
 
-export type NewSwapRequest = Omit<SwapRequest, 'id' | 'created_at'>;
+export type NewSwapRequest = {
+  duty_type: DutyType;
+  duty_date: string;
+  name: string;
+  email: string;
+  note: string | null;
+};

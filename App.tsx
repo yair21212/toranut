@@ -17,7 +17,7 @@ import { AccessError, CloseReason, closeRequest, createRequest, fetchOpenRequest
 import Gate from './src/Gate';
 import AdminScreen from './src/Admin';
 import { formatLong, formatShort, relativeLabel } from './src/dates';
-import { displayPhone, normalizePhone, whatsappUrl } from './src/phone';
+import { copyText, normalizeEmail, normalizeFullName, WHATSAPP_URL } from './src/phone';
 import { getOwnerToken, loadCode, loadMyIds, loadProfile, saveCode, saveMyIds, saveProfile } from './src/storage';
 import { C, FONT } from './src/theme';
 import { DUTY_COLORS, DUTY_HINTS, DUTY_LABELS, DUTY_ORDER, DutyType, Profile, SwapRequest } from './src/types';
@@ -59,6 +59,10 @@ export default function App() {
   const [firstTime, setFirstTime] = useState(false);
   const [hasCode, setHasCode] = useState<boolean | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const emailRef = useRef('');
+  const tokenRef = useRef('');
+  emailRef.current = profile?.email ?? '';
+  tokenRef.current = token;
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -77,7 +81,7 @@ export default function App() {
   const refresh = useCallback(async () => {
     setLoadingList(true);
     try {
-      const rows = await fetchOpenRequests();
+      const rows = await fetchOpenRequests(emailRef.current, tokenRef.current);
       setRequests(rows);
       setListError(null);
     } catch (e) {
@@ -95,8 +99,11 @@ export default function App() {
       setHasCode(Boolean(code));
       setProfile(p);
       setToken(t);
+      tokenRef.current = t;
+      emailRef.current = p?.email ?? '';
       setMyIds(ids);
-      setScreen(p ? 'home' : 'onboarding');
+      // profiles from the phone-number version have no email yet: ask for details again
+      setScreen(p && p.email ? 'home' : 'onboarding');
     })();
   }, []);
 
@@ -115,8 +122,8 @@ export default function App() {
   }, [refresh, hasCode]);
 
   const mine = useMemo(
-    () => requests.filter((r) => myIds.includes(r.id) || (profile !== null && r.phone === profile.phone)),
-    [requests, myIds, profile]
+    () => requests.filter((r) => r.mine || myIds.includes(r.id)),
+    [requests, myIds]
   );
 
   const addMine = useCallback(
@@ -130,13 +137,20 @@ export default function App() {
 
   const updateProfile = useCallback(async (p: Profile) => {
     setProfile(p);
+    emailRef.current = p.email;
     await saveProfile(p);
+  }, []);
+
+  /** Requests that belong to this email (for logging in on a new device). */
+  const lookupEmail = useCallback(async (email: string) => {
+    const rows = await fetchOpenRequests(email, tokenRef.current);
+    return rows.filter((r) => r.mine);
   }, []);
 
   const onClose = useCallback(
     async (r: SwapRequest, reason: CloseReason) => {
       try {
-        await closeRequest(r.id, profile?.phone ?? '', token, reason);
+        await closeRequest(r.id, profile?.email ?? '', token, reason);
         setRequests((rs) => rs.filter((x) => x.id !== r.id));
         const next = myIds.filter((x) => x !== r.id);
         setMyIds(next);
@@ -178,12 +192,13 @@ export default function App() {
       {screen === 'onboarding' && (
         <Onboarding
           initial={profile}
-          requests={requests}
+          lookup={lookupEmail}
           onDone={async (p, returning) => {
             const isNew = !profile && !returning;
             await updateProfile(p);
             setFirstTime(isNew);
             setScreen(isNew ? 'new' : 'home');
+            refresh();
           }}
         />
       )}
@@ -216,7 +231,7 @@ export default function App() {
             let id: string;
             try {
               id = await createRequest(
-                { duty_type: dutyType, duty_date: dutyDate, want_dates: [], note: note || null, name: profile.name, phone: profile.phone },
+                { duty_type: dutyType, duty_date: dutyDate, note: note || null, name: profile.name, email: profile.email },
                 token
               );
             } catch (e) {
@@ -240,19 +255,17 @@ export default function App() {
           profile={profile}
           mine={mine}
           onDismiss={() => setOfferFor(null)}
-          onSent={async (myDate, publish) => {
+          onCopied={async (myDate, publish) => {
             const target = offerFor;
-            setOfferFor(null);
             if (publish) {
               try {
                 const id = await createRequest(
                   {
                     duty_type: target.duty_type,
                     duty_date: myDate,
-                    want_dates: [],
                     note: null,
                     name: profile.name,
-                    phone: profile.phone,
+                    email: profile.email,
                   },
                   token
                 );
@@ -260,7 +273,6 @@ export default function App() {
                 refresh();
               } catch {}
             }
-            showToast('נפתח וואטסאפ עם ההצעה. אם הוא מסכים, אל תשכחו לעדכן את מי שאחראי על התורנויות.');
           }}
         />
       )}
@@ -277,40 +289,76 @@ export default function App() {
 
 function Onboarding({
   initial,
-  requests,
+  lookup,
   onDone,
 }: {
   initial: Profile | null;
-  requests: SwapRequest[];
+  lookup: (email: string) => Promise<SwapRequest[]>;
   onDone: (p: Profile, returning?: boolean) => void;
 }) {
+  const needsUpgrade = Boolean(initial && !initial.email);
   const [step, setStep] = useState<1 | 2 | 'login'>(initial ? 2 : 1);
   const [loginNote, setLoginNote] = useState<string | null>(null);
   const [duty, setDuty] = useState<DutyType | null>(initial?.dutyType ?? null);
   const [name, setName] = useState(initial?.name ?? '');
-  const [phone, setPhone] = useState(initial ? '0' + initial.phone.slice(3) : '');
+  const [email, setEmail] = useState(initial?.email ?? '');
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const login = () => {
-    const p = normalizePhone(phone);
-    if (!p) return setErr('מספר הטלפון לא תקין. צריך מספר נייד, למשל 0541234567.');
-    const own = requests.filter((r) => r.phone === p).sort((a, b) => b.created_at.localeCompare(a.created_at));
-    if (own.length > 0) {
-      onDone({ name: own[0].name, phone: p, dutyType: own[0].duty_type }, true);
-      return;
+  const login = async () => {
+    const e = normalizeEmail(email);
+    if (!e) return setErr('האימייל לא תקין. בדקו שכתבתם אותו נכון.');
+    setBusy(true);
+    try {
+      const own = (await lookup(e)).sort((x, y) => y.created_at.localeCompare(x.created_at));
+      if (own.length > 0 && normalizeFullName(own[0].name)) {
+        onDone({ name: own[0].name, email: e, dutyType: own[0].duty_type }, true);
+        return;
+      }
+      if (own.length > 0) {
+        setName(own[0].name);
+        setDuty(own[0].duty_type);
+        setLoginNote('מצאנו את הבקשות שלכם. השלימו שם מלא כדי להמשיך.');
+        setStep(2);
+        return;
+      }
+      setLoginNote('לא מצאנו בקשות פתוחות עם האימייל הזה. בחרו סוג תורנות והשלימו את הפרטים כדי להמשיך.');
+      setStep(1);
+    } catch {
+      setErr('לא הצלחנו להתחבר. בדקו את החיבור לאינטרנט.');
+    } finally {
+      setBusy(false);
     }
-    setLoginNote('לא מצאנו בקשות פתוחות עם המספר הזה. בחרו סוג תורנות והשלימו שם כדי להמשיך.');
-    setStep(1);
   };
 
   const finish = () => {
-    const n = name.trim();
-    const p = normalizePhone(phone);
-    if (!n) return setErr('צריך למלא שם, כדי שידעו מי מציע את ההחלפה.');
-    if (!p) return setErr('מספר הטלפון לא תקין. צריך מספר נייד, למשל 0541234567.');
+    const n = normalizeFullName(name);
+    const e = normalizeEmail(email);
+    if (!n) return setErr('צריך שם מלא: שם פרטי ושם משפחה, כמו שאתם שמורים אצל החברים בטלפון.');
+    if (!e) return setErr('האימייל לא תקין. בדקו שכתבתם אותו נכון.');
     if (!duty) return setStep(1);
-    onDone({ name: n.slice(0, 40), phone: p, dutyType: duty });
+    onDone({ name: n, email: e, dutyType: duty }, needsUpgrade || undefined);
   };
+
+  const emailInput = (onSubmit?: () => void) => (
+    <TextInput
+      value={email}
+      onChangeText={(t) => {
+        setEmail(t);
+        setErr(null);
+      }}
+      placeholder="name@gmail.com"
+      placeholderTextColor="#9AA19C"
+      style={[st.input, { textAlign: 'left', direction: 'ltr' } as any]}
+      keyboardType="email-address"
+      inputMode="email"
+      autoComplete="email"
+      autoCapitalize="none"
+      autoCorrect={false}
+      maxLength={120}
+      onSubmitEditing={onSubmit}
+    />
+  );
 
   return (
     <ScrollView contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
@@ -321,25 +369,11 @@ function Onboarding({
               <Text style={st.back}>› חזרה</Text>
             </Pressable>
             <Text style={st.h1}>התחברות</Text>
-            <Text style={st.lead}>הכניסו את המספר שאיתו נרשמתם, והבקשות שלכם יחזרו להופיע.</Text>
-            <Text style={st.label}>מספר נייד</Text>
-            <TextInput
-              value={phone}
-              onChangeText={(t) => {
-                setPhone(t);
-                setErr(null);
-              }}
-              placeholder="05X-XXX-XXXX"
-              placeholderTextColor="#9AA19C"
-              style={[st.input, { textAlign: 'right' }]}
-              keyboardType="phone-pad"
-              inputMode="tel"
-              autoComplete="tel"
-              maxLength={16}
-              onSubmitEditing={login}
-            />
+            <Text style={st.lead}>הכניסו את האימייל שאיתו נרשמתם, והבקשות שלכם יחזרו להופיע.</Text>
+            <Text style={st.label}>אימייל</Text>
+            {emailInput(login)}
             {err && <Text style={st.err}>{err}</Text>}
-            <PrimaryButton label="כניסה" onPress={login} style={{ marginTop: 20 }} />
+            <PrimaryButton label={busy ? 'מתחבר…' : 'כניסה'} onPress={login} disabled={busy} style={{ marginTop: 20 }} />
           </>
         ) : step === 1 ? (
           <>
@@ -380,7 +414,7 @@ function Onboarding({
                 style={st.loginLink}
               >
                 <Text style={st.loginLinkText}>
-                  כבר נרשמתם? <Text style={{ color: C.accent, fontWeight: '700' }}>התחברות עם מספר טלפון</Text>
+                  כבר נרשמתם? <Text style={{ color: C.accent, fontWeight: '700' }}>התחברות עם אימייל</Text>
                 </Text>
               </Pressable>
             )}
@@ -392,17 +426,25 @@ function Onboarding({
                 <Text style={st.back}>› חזרה</Text>
               </Pressable>
             )}
-            <Text style={st.h1}>{initial ? 'הפרטים שלי' : 'עוד שני פרטים וסיימנו'}</Text>
-            <Text style={st.lead}>
-              השם והמספר מופיעים על הבקשות שלכם, כדי שמי שרוצה להחליף יוכל לשלוח לכם הודעה בוואטסאפ בלחיצה אחת.
-            </Text>
-            {initial && duty && (
+            <Text style={st.h1}>{needsUpgrade ? 'עדכון פרטים' : initial ? 'הפרטים שלי' : 'עוד שני פרטים וסיימנו'}</Text>
+            {needsUpgrade ? (
+              <Text style={st.lead}>האתר כבר לא משתמש במספרי טלפון. השלימו שם מלא ואימייל, והבקשות שלכם יישארו שלכם.</Text>
+            ) : loginNote && step === 2 ? (
+              <Text style={[st.warn, { marginTop: 0, marginBottom: 8 }]}>{loginNote}</Text>
+            ) : null}
+            {initial && duty && !needsUpgrade && (
               <>
                 <Text style={st.label}>סוג התורנות</Text>
                 <DutyPills value={duty} onChange={setDuty} />
               </>
             )}
-            <Text style={st.label}>שם</Text>
+            <Text style={st.label}>שם מלא</Text>
+            <View style={st.nameNote}>
+              <Text style={st.nameNoteText}>
+                <Text style={{ fontWeight: '800' }}>חובה שם פרטי ושם משפחה.</Text> לפי השם הזה החברים יחפשו אתכם באנשי הקשר בוואטסאפ, אז כתבו
+                אותו כמו שאתם שמורים אצלם בטלפון.
+              </Text>
+            </View>
             <TextInput
               value={name}
               onChangeText={(t) => {
@@ -415,24 +457,12 @@ function Onboarding({
               maxLength={40}
               autoComplete="name"
             />
-            <Text style={st.label}>מספר נייד (וואטסאפ)</Text>
-            <TextInput
-              value={phone}
-              onChangeText={(t) => {
-                setPhone(t);
-                setErr(null);
-              }}
-              placeholder="05X-XXX-XXXX"
-              placeholderTextColor="#9AA19C"
-              style={[st.input, { textAlign: 'right' }]}
-              keyboardType="phone-pad"
-              inputMode="tel"
-              autoComplete="tel"
-              maxLength={16}
-            />
+            <Text style={st.label}>אימייל</Text>
+            <Text style={st.fieldHint}>רק כדי שתוכלו להתחבר שוב מכל טלפון. בלי סיסמה, לא שולחים אליו כלום, ואף אחד לא רואה אותו.</Text>
+            {emailInput(finish)}
             {err && <Text style={st.err}>{err}</Text>}
             <PrimaryButton label={initial ? 'שמירה' : 'בואו נתחיל'} onPress={finish} style={{ marginTop: 20 }} />
-            {initial && <GhostButton label="ביטול" onPress={() => onDone(initial)} />}
+            {initial && !needsUpgrade && <GhostButton label="ביטול" onPress={() => onDone(initial)} />}
           </>
         )}
       </View>
@@ -583,7 +613,7 @@ function RequestCard({ r, onOffer }: { r: SwapRequest; onOffer: () => void }) {
       </View>
       {r.note ? <Text style={st.cardNote}>״{r.note}״</Text> : null}
       <Pressable onPress={onOffer} style={({ pressed }) => [st.waBtn, pressed && { opacity: 0.85 }]}>
-        <Text style={st.waBtnText}>הצעת החלפה בוואטסאפ</Text>
+        <Text style={st.waBtnText}>הצעת החלפה</Text>
       </Pressable>
     </View>
   );
@@ -707,7 +737,7 @@ function NewRequest({
         />
 
         <Text style={st.previewNote}>
-          הבקשה תופיע עם השם {profile.name} והמספר {displayPhone(profile.phone)}.
+          הבקשה תופיע בלוח עם השם {profile.name}, וככה החברים ימצאו אתכם בוואטסאפ.
         </Text>
         {err && <Text style={st.err}>{err}</Text>}
         <PrimaryButton
@@ -730,13 +760,13 @@ function OfferModal({
   profile,
   mine,
   onDismiss,
-  onSent,
+  onCopied,
 }: {
   target: SwapRequest;
   profile: Profile;
   mine: SwapRequest[];
   onDismiss: () => void;
-  onSent: (myDate: string, publish: boolean) => void;
+  onCopied: (myDate: string, publish: boolean) => void;
 }) {
   const label = DUTY_LABELS[target.duty_type];
   const color = DUTY_COLORS[target.duty_type].bg;
@@ -747,20 +777,32 @@ function OfferModal({
   const [myDate, setMyDate] = useState<string | null>(preferred);
   const [showGrid, setShowGrid] = useState(myDates.length === 0);
   const [publish, setPublish] = useState(true);
+  const [copied, setCopied] = useState<null | 'ok' | 'manual'>(null);
+  const reported = useRef(false);
 
   const isNewDate = myDate !== null && !myDates.includes(myDate);
+  const firstName = target.name.split(' ')[0];
 
   const message = myDate
-    ? `היי ${target.name}, ראיתי באתר ההחלפות שיש לך בקשת החלפה ל${label} ב${formatLong(target.duty_date)}.\n` +
+    ? `היי ${firstName}, ראיתי באתר ההחלפות שיש לך בקשת החלפה ל${label} ב${formatLong(target.duty_date)}.\n` +
       `לי יש ${label} ב${formatLong(myDate)}. מתאים לך להחליף איתי?\n` +
       `${profile.name}`
     : '';
 
-  const send = () => {
+  const copy = async () => {
     if (!myDate) return;
-    Linking.openURL(whatsappUrl(target.phone, message));
-    logOffer(target.id, target.duty_type);
-    onSent(myDate, isNewDate && publish);
+    const ok = await copyText(message);
+    setCopied(ok ? 'ok' : 'manual');
+    if (!reported.current) {
+      reported.current = true;
+      logOffer(target.id, target.duty_type);
+      onCopied(myDate, isNewDate && publish);
+    }
+  };
+
+  const openWhatsApp = () => {
+    // Opens WhatsApp and lets the user pick the chat; the message is also on the clipboard to paste.
+    Linking.openURL(`${WHATSAPP_URL}?text=${encodeURIComponent(message)}`);
   };
 
   return (
@@ -770,67 +812,109 @@ function OfferModal({
         <View style={st.sheet}>
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 28 }} keyboardShouldPersistTaps="handled">
             <View style={st.sheetHandle} />
-            <Text style={st.h2}>הצעת החלפה ל{target.name}</Text>
-            <Text style={st.lead}>
-              ל{target.name} יש {label} ב{formatLong(target.duty_date)}, וצריך להחליף אותו.
-            </Text>
-
-            <Text style={st.stepTitle}>באיזה יום יש לך {label}?</Text>
-            {myDates.length > 0 && (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {myDates.map((d) => (
-                  <Toggle
-                    key={d}
-                    label={formatShort(d)}
-                    active={myDate === d}
-                    onPress={() => {
-                      setMyDate(d);
-                      setShowGrid(false);
-                    }}
-                    color={color}
-                  />
-                ))}
-                <Toggle label="יום אחר" active={showGrid && isNewDate} onPress={() => setShowGrid(true)} color={color} />
-              </View>
-            )}
-            {showGrid && (
-              <View style={[st.panel, { marginTop: 10 }]}>
-                <DateGrid
-                  selected={myDate ? [myDate] : []}
-                  onToggle={(iso) => setMyDate(iso)}
-                  color={color}
-                  disabled={[target.duty_date]}
-                />
-              </View>
-            )}
-            {isNewDate && (
-              <Pressable onPress={() => setPublish((p) => !p)} style={st.checkRow}>
-                <View style={[st.checkbox, publish && { backgroundColor: color, borderColor: color }]}>
-                  {publish && <Text style={st.checkMark}>✓</Text>}
+            {copied ? (
+              <>
+                <View style={st.copiedBadge}>
+                  <Text style={st.copiedBadgeText}>{copied === 'ok' ? '✓ ההודעה הועתקה' : 'העתיקו את ההודעה'}</Text>
                 </View>
-                <Text style={st.checkLabel}>לפרסם גם את התורנות שלי ב{formatLong(myDate!)} בלוח, כדי שגם אחרים יוכלו להציע לי החלפה</Text>
-              </Pressable>
-            )}
+                {copied === 'manual' && (
+                  <>
+                    <Text style={st.lead}>הטלפון לא אפשר העתקה אוטומטית. סמנו את ההודעה בלחיצה ארוכה והעתיקו אותה.</Text>
+                    <View style={st.msgPreview}>
+                      <Text selectable style={st.msgPreviewText}>
+                        {message}
+                      </Text>
+                    </View>
+                  </>
+                )}
+                <Text style={[st.h2, { marginTop: 14 }]}>עכשיו שולחים ל{target.name}</Text>
+                <View style={{ gap: 12, marginTop: 4 }}>
+                  <StepRow n={1} text="פתחו את הוואטסאפ." />
+                  <StepRow n={2} text={`חפשו את ${target.name} באנשי הקשר ופתחו את הצ׳אט.`} />
+                  <StepRow n={3} text="הדביקו את ההודעה ושלחו." />
+                </View>
+                <Pressable onPress={openWhatsApp} style={({ pressed }) => [st.waBtn, { marginTop: 20, paddingVertical: 15 }, pressed && { opacity: 0.85 }]}>
+                  <Text style={st.waBtnText}>פתיחת וואטסאפ</Text>
+                </Pressable>
+                <Text style={st.waHint}>הכפתור פותח את הוואטסאפ עם ההודעה, ואפשר לבחור למי לשלוח.</Text>
+                <GhostButton label="סיום" onPress={onDismiss} />
+              </>
+            ) : (
+              <>
+                <Text style={st.h2}>הצעת החלפה ל{target.name}</Text>
+                <Text style={st.lead}>
+                  ל{target.name} יש {label} ב{formatLong(target.duty_date)}, וצריך להחליף אותו.
+                </Text>
 
-            {myDate && (
-              <View style={st.msgPreview}>
-                <Text style={st.msgPreviewLabel}>ההודעה שתישלח:</Text>
-                <Text style={st.msgPreviewText}>{message}</Text>
-              </View>
-            )}
+                <Text style={st.stepTitle}>באיזה יום יש לך {label}?</Text>
+                {myDates.length > 0 && (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {myDates.map((d) => (
+                      <Toggle
+                        key={d}
+                        label={formatShort(d)}
+                        active={myDate === d}
+                        onPress={() => {
+                          setMyDate(d);
+                          setShowGrid(false);
+                        }}
+                        color={color}
+                      />
+                    ))}
+                    <Toggle label="יום אחר" active={showGrid && isNewDate} onPress={() => setShowGrid(true)} color={color} />
+                  </View>
+                )}
+                {showGrid && (
+                  <View style={[st.panel, { marginTop: 10 }]}>
+                    <DateGrid
+                      selected={myDate ? [myDate] : []}
+                      onToggle={(iso) => setMyDate(iso)}
+                      color={color}
+                      disabled={[target.duty_date]}
+                    />
+                  </View>
+                )}
+                {isNewDate && (
+                  <Pressable onPress={() => setPublish((p) => !p)} style={st.checkRow}>
+                    <View style={[st.checkbox, publish && { backgroundColor: color, borderColor: color }]}>
+                      {publish && <Text style={st.checkMark}>✓</Text>}
+                    </View>
+                    <Text style={st.checkLabel}>לפרסם גם את התורנות שלי ב{formatLong(myDate!)} בלוח, כדי שגם אחרים יוכלו להציע לי החלפה</Text>
+                  </Pressable>
+                )}
 
-            <Pressable
-              onPress={send}
-              disabled={!myDate}
-              style={({ pressed }) => [st.waBtn, { marginTop: 16, paddingVertical: 15 }, !myDate && { opacity: 0.4 }, pressed && { opacity: 0.85 }]}
-            >
-              <Text style={st.waBtnText}>שליחה בוואטסאפ ל{target.name}</Text>
-            </Pressable>
-            <GhostButton label="ביטול" onPress={onDismiss} />
+                {myDate && (
+                  <View style={st.msgPreview}>
+                    <Text style={st.msgPreviewLabel}>ההודעה המוכנה:</Text>
+                    <Text style={st.msgPreviewText}>{message}</Text>
+                  </View>
+                )}
+
+                <Pressable
+                  onPress={copy}
+                  disabled={!myDate}
+                  style={({ pressed }) => [st.waBtn, { marginTop: 16, paddingVertical: 15 }, !myDate && { opacity: 0.4 }, pressed && { opacity: 0.85 }]}
+                >
+                  <Text style={st.waBtnText}>העתקת ההודעה</Text>
+                </Pressable>
+                <GhostButton label="ביטול" onPress={onDismiss} />
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
     </Modal>
+  );
+}
+
+function StepRow({ n, text }: { n: number; text: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <View style={st.stepNum}>
+        <Text style={st.stepNumText}>{n}</Text>
+      </View>
+      <Text style={[st.cardMetaStrong, { flex: 1, fontWeight: '500' }]}>{text}</Text>
+    </View>
   );
 }
 
@@ -1005,6 +1089,14 @@ const st = StyleSheet.create({
   skipTopText: { ...T, fontSize: 14, fontWeight: '500', color: C.accent },
   loginLink: { marginTop: 22, paddingVertical: 12, alignItems: 'center', borderTopWidth: 1, borderTopColor: C.line },
   loginLinkText: { ...T, fontSize: 15, color: C.muted },
+  nameNote: { backgroundColor: C.matchSoft, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 8 },
+  nameNoteText: { ...T, fontSize: 13, lineHeight: 19, color: '#6B4A06' },
+  fieldHint: { ...T, color: C.muted, fontSize: 13, lineHeight: 18, marginBottom: 6 },
+  copiedBadge: { alignSelf: 'center', backgroundColor: C.accentSoft, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 8 },
+  copiedBadgeText: { ...T, color: C.accent, fontSize: 16, fontWeight: '800' },
+  stepNum: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
+  stepNumText: { fontFamily: FONT, color: '#fff', fontSize: 15, fontWeight: '800' },
+  waHint: { ...T, color: C.muted, fontSize: 12, textAlign: 'center', marginTop: 8, lineHeight: 17 },
   footer: { ...T, color: C.muted, fontSize: 12, textAlign: 'center', marginTop: 30 },
   toast: {
     position: 'absolute',

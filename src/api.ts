@@ -29,8 +29,8 @@ export async function verifyCode(code: string): Promise<'ok' | 'bad_code' | 'too
   return data as 'ok' | 'bad_code' | 'too_many_attempts';
 }
 
-export async function fetchOpenRequests(): Promise<SwapRequest[]> {
-  const { data, error } = await supabase.rpc('requests_list', { p_code: accessCode });
+export async function fetchOpenRequests(email: string, ownerToken: string): Promise<SwapRequest[]> {
+  const { data, error } = await supabase.rpc('requests_list2', { p_code: accessCode, p_email: email, p_token: ownerToken });
   if (error) throw new Error(error.message);
   const res = data as { status: string; rows?: SwapRequest[] };
   checkStatus(res.status);
@@ -38,12 +38,12 @@ export async function fetchOpenRequests(): Promise<SwapRequest[]> {
 }
 
 export async function createRequest(req: NewSwapRequest, ownerToken: string): Promise<string> {
-  const { data, error } = await supabase.rpc('request_create', {
+  const { data, error } = await supabase.rpc('request_create2', {
     p_code: accessCode,
     p_duty_type: req.duty_type,
     p_duty_date: req.duty_date,
     p_name: req.name,
-    p_phone: req.phone,
+    p_email: req.email,
     p_note: req.note,
     p_token: ownerToken,
   });
@@ -55,18 +55,20 @@ export async function createRequest(req: NewSwapRequest, ownerToken: string): Pr
   }
   const res = data as { status: string; id?: string };
   checkStatus(res.status);
+  if (res.status === 'bad_name') throw new Error('צריך שם מלא: שם פרטי ושם משפחה. אפשר לתקן ב"הפרטים שלי".');
+  if (res.status === 'bad_email') throw new Error('האימייל לא תקין. אפשר לתקן ב"הפרטים שלי".');
   if (res.status !== 'ok' || !res.id) throw new Error('הפרסום נכשל. בדקו שהתאריך תקין ונסו שוב.');
   return res.id;
 }
 
 export type CloseReason = 'swapped' | 'removed';
 
-/** Close a request owned either by this phone number or by this device. */
-export async function closeRequest(id: string, phone: string, ownerToken: string, reason: CloseReason): Promise<boolean> {
-  const { data, error } = await supabase.rpc('request_close', {
+/** Close a request owned either by this email or by this device. */
+export async function closeRequest(id: string, email: string, ownerToken: string, reason: CloseReason): Promise<boolean> {
+  const { data, error } = await supabase.rpc('request_close2', {
     p_code: accessCode,
     p_id: id,
-    p_phone: phone,
+    p_email: email,
     p_token: ownerToken,
     p_reason: reason,
   });

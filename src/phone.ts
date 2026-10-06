@@ -1,19 +1,42 @@
-/** Normalize an Israeli mobile number to 9725XXXXXXXX, or null if invalid. */
-export function normalizePhone(input: string): string | null {
-  let d = input.replace(/\D/g, '');
-  if (d.startsWith('00972')) d = d.slice(5);
-  else if (d.startsWith('972')) d = d.slice(3);
-  if (d.startsWith('0')) d = d.slice(1);
-  if (/^5\d{8}$/.test(d)) return '972' + d;
-  return null;
+/** Normalize an email address, or null if it doesn't look valid. */
+export function normalizeEmail(input: string): string | null {
+  const e = input.trim().toLowerCase();
+  if (e.length > 120 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return null;
+  return e;
 }
 
-/** 9725XXXXXXXX -> 05X-XXX-XXXX */
-export function displayPhone(p: string): string {
-  const local = '0' + p.slice(3);
-  return `${local.slice(0, 3)}-${local.slice(3, 6)}-${local.slice(6)}`;
+/** Full name = at least two words, first and last of 2+ letters. Returns the cleaned name or null. */
+export function normalizeFullName(input: string): string | null {
+  const n = input.trim().replace(/\s+/g, ' ');
+  if (n.length > 40 || !/^\S{2,}( \S+)*( \S{2,})$/.test(n)) return null;
+  return n;
 }
 
-export function whatsappUrl(phone: string, text: string): string {
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+/** Copy text to the clipboard on the web (with a fallback for older browsers). */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {}
+  try {
+    if (typeof document === 'undefined') return false;
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
 }
+
+/** Opens WhatsApp (app on phones). Without a number, WhatsApp lets the user pick the chat. */
+export const WHATSAPP_URL = 'https://wa.me/';
